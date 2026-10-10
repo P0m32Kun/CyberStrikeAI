@@ -4,6 +4,15 @@
 
 本文给出 CyberStrikeAI 上线前和持续运行中的安全加固清单。
 
+## 本 fork 默认（治理基线）
+
+- HITL 出厂 `default_reviewer: human`（人工审批）；全局白名单为低风险只读/查询与状态回调类工具（`config.example.yaml` 出厂列表可直接沿用）。
+- HITL 模式出厂 `default_mode: off`（`config.example.yaml:191`），开箱无审批拦截：须显式开启（全局 `default_mode` 或会话级）后，白名单与 reviewer=human 才生效。
+- `exec` / `execute-python-script` / `install-python-package` 三个治理绕过型工具默认 `enabled: false`，需要时显式开启并配合审批使用。
+- Eino 本地文件/Shell 工具链出厂启用（`multi_agent.eino_skills.filesystem_tools: true`，注册 read_file/glob/grep/write/edit/execute），**不受** `tools/exec.yaml` 开关影响；按需设 `false` 关闭。
+- C2 出厂默认启用（`config.example.yaml` 为 `true`，配置缺省也视为启用），部署时必须显式写 `c2.enabled: false`；WebShell 不配置连接即不可用。
+- 监听地址出厂为 `0.0.0.0:8080`（全接口），内网环境有暴露面：建议改绑 `127.0.0.1`，或用防火墙/反向代理限制来源。
+
 ## 上线前必做
 
 - 首次部署后立即修改 `admin` 初始密码（Web 界面或平台权限 → 用户管理）。

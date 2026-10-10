@@ -56,7 +56,7 @@ args:
       python3 -c "$SCRIPT_CONTENT"
     fi
   - "_"
-enabled: true
+enabled: false
 short_description: "在指定虚拟环境中编写并执行Python脚本"
 description: |
   在虚拟环境中执行Python脚本。
