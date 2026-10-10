@@ -313,7 +313,9 @@ build_go_project() {
     (
         set +e  # disable errexit in subshell
         export GOPROXY="$GOPROXY"
-        go build -o "$BINARY_NAME" ./cmd/server >"$GO_BUILD_LOG" 2>&1
+        # sqlite_fts5: 启用 mattn/go-sqlite3 的 FTS5（流量库全文检索）；
+        # 不带 tag 也可编译运行，流量检索自动降级为仅元数据搜索
+        go build -tags "sqlite_fts5" -o "$BINARY_NAME" ./cmd/server >"$GO_BUILD_LOG" 2>&1
         echo $? > "${GO_BUILD_LOG}.exit"
     ) &
     GO_BUILD_PID=$!
@@ -374,7 +376,8 @@ build_go_project_quiet() {
     rm -f "$GO_DOWNLOAD_LOG"
 
     GO_BUILD_LOG=$(mktemp)
-    if ! GOPROXY="$GOPROXY" go build -o "$BINARY_NAME" ./cmd/server >"$GO_BUILD_LOG" 2>&1; then
+    # sqlite_fts5: 启用 FTS5（流量库全文检索）；不带 tag 也可编译，检索自动降级
+    if ! GOPROXY="$GOPROXY" go build -tags "sqlite_fts5" -o "$BINARY_NAME" ./cmd/server >"$GO_BUILD_LOG" 2>&1; then
         error "Build failed"
         echo ""
         info "Build error details:"

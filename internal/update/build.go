@@ -37,7 +37,9 @@ func toolchain(ctx context.Context, root string) (string, bool) {
 // one lives. Output is returned on failure because the operator needs the compiler's
 // message, not "build failed".
 func build(ctx context.Context, root, outPath string) error {
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", outPath, "./cmd/server")
+	// -tags sqlite_fts5 与 run.sh 保持一致：流量库 FTS5 全文检索依赖该 tag，
+	// 漏掉会让自更新后的二进制静默降级为仅元数据搜索，且 need_rebuild 不会补。
+	cmd := exec.CommandContext(ctx, "go", "build", "-tags", "sqlite_fts5", "-o", outPath, "./cmd/server")
 	cmd.Dir = root
 	// The module cache goes next to the install rather than into whoever's HOME started
 	// the service, so a first build under a service account cannot fail on a HOME that is

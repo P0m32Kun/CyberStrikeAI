@@ -35,6 +35,7 @@ import (
 	"cyberstrike-ai/internal/skillpackage"
 	"cyberstrike-ai/internal/storage"
 	"cyberstrike-ai/internal/toolguard"
+	"cyberstrike-ai/internal/traffic"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -74,6 +75,7 @@ type App struct {
 	c2WatchdogCancel   context.CancelFunc        // 看门狗取消函数
 	c2Handler          *handler.C2Handler        // C2 REST（与 Manager 生命周期同步）
 	storageHandler     *handler.StorageHandler   // 运行空间占用统计与垃圾清理
+	trafficStore       *traffic.Store            // HTTP 流量共享库（data/traffic 独立 SQLite + blob 树）
 	auditSvc           *audit.Service
 }
 
@@ -107,6 +109,15 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 	db, err := database.NewDB(dbPath, log.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("初始化数据库失败: %w", err)
+	}
+
+	// HTTP 流量共享库：与主业务库分离的索引库 + blob 树（默认启用）
+	trafficStore, err := traffic.Open(filepath.Join(filepath.Dir(dbPath), "traffic"), log.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("初始化流量库失败: %w", err)
+	}
+	if !trafficStore.FTSAvailable() {
+		log.Logger.Warn("流量库全文检索运行在降级模式（仅元数据搜索）；如需 FTS5 请以 -tags sqlite_fts5 构建（run.sh 已默认携带）")
 	}
 
 	// 认证管理器（数据库初始化后挂载 RBAC）
@@ -448,6 +459,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 	vulnerabilityHandler := handler.NewVulnerabilityHandler(db, log.Logger)
 	vulnerabilityHandler.SetTaskStateProvider(agentHandler)
 	assetHandler := handler.NewAssetHandler(db, log.Logger)
+	trafficHandler := handler.NewHTTPFlowHandler(trafficStore, db, log.Logger)
 	projectHandler := handler.NewProjectHandler(db, log.Logger)
 	rbacHandler := handler.NewRBACHandler(db, log.Logger)
 	rbacHandler.SetAudit(auditSvc)
@@ -526,6 +538,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 		c2WatchdogCancel:   watchdogCancel,
 		c2Handler:          c2Handler,
 		storageHandler:     storageHandler,
+		trafficStore:       trafficStore,
 		auditSvc:           auditSvc,
 	}
 	// 飞书/钉钉长连接（无需公网），启用时在后台启动；后续前端应用配置时会通过 RestartRobotConnections 重启
@@ -540,8 +553,11 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 		registerAssetTools(mcpServer, db, log.Logger)
 		registerProjectFactTools(mcpServer, db, cfg, log.Logger)
 		registerVisionTools(mcpServer, cfg, log.Logger)
+		registerTrafficTools(mcpServer, trafficStore, db, log.Logger)
 		return nil
 	}
+	// 启动时先注册一次；ApplyConfig 清空工具后由上面的 registrar 重注册
+	registerTrafficTools(mcpServer, trafficStore, db, log.Logger)
 	configHandler.SetVulnerabilityToolRegistrar(vulnerabilityRegistrar)
 
 	// 设置 WebShell 工具注册器（ApplyConfig 时重新注册）
@@ -636,6 +652,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 		app, // 传递 App 实例以便动态获取 knowledgeHandler
 		vulnerabilityHandler,
 		assetHandler,
+		trafficHandler,
 		projectHandler,
 		workflowHandler,
 		webshellHandler,
@@ -832,6 +849,13 @@ func (a *App) Shutdown() {
 		a.externalMCPMgr.StopAll()
 	}
 
+	// 关闭 HTTP 流量共享库连接
+	if a.trafficStore != nil {
+		if err := a.trafficStore.Close(); err != nil {
+			a.logger.Logger.Warn("关闭流量库连接失败", zap.Error(err))
+		}
+	}
+
 	// 关闭知识库数据库连接（如果使用独立数据库）
 	if a.knowledgeDB != nil {
 		if err := a.knowledgeDB.Close(); err != nil {
@@ -942,6 +966,7 @@ func setupRoutes(
 	app *App, // 传递 App 实例以便动态获取 knowledgeHandler
 	vulnerabilityHandler *handler.VulnerabilityHandler,
 	assetHandler *handler.AssetHandler,
+	trafficHandler *handler.HTTPFlowHandler,
 	projectHandler *handler.ProjectHandler,
 	workflowHandler *handler.WorkflowHandler,
 	webshellHandler *handler.WebShellHandler,
@@ -1067,6 +1092,12 @@ func setupRoutes(
 
 		// 资产管理
 		protected.GET("/assets", assetHandler.List)
+		// HTTP 流量共享库（导入/检索/详情/标签/按项目清理）
+		protected.POST("/http-flows", trafficHandler.Import)
+		protected.GET("/http-flows", trafficHandler.List)
+		protected.GET("/http-flows/:id", trafficHandler.Get)
+		protected.POST("/http-flows/:id/tags", trafficHandler.SetTags)
+		protected.DELETE("/http-flows", trafficHandler.ClearProject)
 		protected.GET("/assets/selection", assetHandler.Selection)
 		protected.GET("/assets/stats", assetHandler.Stats)
 		protected.POST("/assets/import", assetHandler.Import)

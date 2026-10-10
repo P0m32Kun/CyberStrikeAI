@@ -74,6 +74,12 @@ const (
 	ToolC2Event      = "c2_event"       // 事件查询
 	ToolC2Profile    = "c2_profile"     // Malleable Profile 管理（list/get/create/update/delete）
 	ToolC2File       = "c2_file"        // 文件管理（list/get_result）
+
+	// HTTP 流量共享库工具
+	ToolQueryHTTPFlows    = "query_http_flows"     // 检索已存 HTTP 流量
+	ToolGetHTTPFlow       = "get_http_flow"        // 单条流量详情
+	ToolTagHTTPFlow       = "tag_http_flow"        // 给流量打标签
+	ToolStartChatFromFlow = "start_chat_from_flow" // 从流量生成对话引用文本
 )
 
 // IsBuiltinTool 检查工具名称是否是内置工具
@@ -123,6 +129,10 @@ func IsBuiltinTool(toolName string) bool {
 		ToolBatchTaskAdd,
 		ToolBatchTaskUpdate,
 		ToolBatchTaskRemove,
+		ToolQueryHTTPFlows,
+		ToolGetHTTPFlow,
+		ToolTagHTTPFlow,
+		ToolStartChatFromFlow,
 		// C2 工具
 		ToolC2Listener,
 		ToolC2Session,
@@ -185,6 +195,10 @@ func GetAllBuiltinTools() []string {
 		ToolBatchTaskAdd,
 		ToolBatchTaskUpdate,
 		ToolBatchTaskRemove,
+		ToolQueryHTTPFlows,
+		ToolGetHTTPFlow,
+		ToolTagHTTPFlow,
+		ToolStartChatFromFlow,
 		// C2 工具
 		ToolC2Listener,
 		ToolC2Session,
