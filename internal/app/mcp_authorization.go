@@ -145,6 +145,14 @@ func mcpToolAuthorizer(db *database.DB) func(context.Context, string, map[string
 			return nil
 		case builtin.ToolDeleteAsset:
 			return resource("asset:delete", "asset", "id")
+		case builtin.ToolIngestNmapXML:
+			if err := require("asset:write"); err != nil {
+				return err
+			}
+			if projectID := mcpAuthorizationString(args, "project_id"); projectID != "" && (db == nil || !db.UserCanAccessResource(principal.UserID, principal.ScopeFor("asset:write"), "project", projectID)) {
+				return fmt.Errorf("no access to project %s", projectID)
+			}
+			return nil
 		case builtin.ToolUpsertProjectFact, builtin.ToolDeprecateProjectFact, builtin.ToolRestoreProjectFact:
 			return authorizeProjectTool(ctx, principal, db, "project:write")
 		case builtin.ToolGetProjectFact, builtin.ToolListProjectFacts, builtin.ToolSearchProjectFacts:

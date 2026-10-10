@@ -165,6 +165,8 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 	executor.SetShellNoOutputTimeoutSeconds(cfg.Agent.ShellNoOutputTimeoutSeconds)
 	executor.SetToolOutputMaxBytes(cfg.MultiAgent.EinoMiddleware.ReductionMaxLengthForTruncEffective())
 	executor.SetToolOutputSpillRoot(cfg.MultiAgent.EinoMiddleware.ReductionRootDir)
+	// fork Phase 2（挂载点 A）：nmap 执行成功后自动把 XML 结果写入资产库（需项目绑定，落审计）
+	executor.SetToolSuccessHook(nmapAutoIngestHook(db, auditSvc, log.Logger))
 
 	// 注册工具
 	executor.RegisterTools(mcpServer)
@@ -174,6 +176,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 	registerAssetTools(mcpServer, db, log.Logger)
 	registerProjectFactTools(mcpServer, db, cfg, log.Logger)
 	registerVisionTools(mcpServer, cfg, log.Logger)
+	registerNmapIngestTools(mcpServer, db, auditSvc, log.Logger)
 
 	// 创建外部MCP管理器（使用与内部MCP服务器相同的存储）
 	externalMCPMgr := mcp.NewExternalMCPManagerWithStorage(log.Logger, db)
@@ -540,6 +543,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 		registerAssetTools(mcpServer, db, log.Logger)
 		registerProjectFactTools(mcpServer, db, cfg, log.Logger)
 		registerVisionTools(mcpServer, cfg, log.Logger)
+		registerNmapIngestTools(mcpServer, db, auditSvc, log.Logger)
 		return nil
 	}
 	configHandler.SetVulnerabilityToolRegistrar(vulnerabilityRegistrar)

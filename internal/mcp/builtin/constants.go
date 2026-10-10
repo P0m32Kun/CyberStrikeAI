@@ -16,6 +16,7 @@ const (
 	ToolUpdateAsset       = "update_asset"
 	ToolDeleteAsset       = "delete_asset"
 	ToolCompleteAssetScan = "complete_asset_scan"
+	ToolIngestNmapXML     = "ingest_nmap_xml"
 
 	// 项目黑板（事实）工具
 	ToolUpsertProjectFact    = "upsert_project_fact"
@@ -89,6 +90,7 @@ func IsBuiltinTool(toolName string) bool {
 		ToolUpdateAsset,
 		ToolDeleteAsset,
 		ToolCompleteAssetScan,
+		ToolIngestNmapXML,
 		ToolUpsertProjectFact,
 		ToolGetProjectFact,
 		ToolListProjectFacts,
@@ -151,6 +153,7 @@ func GetAllBuiltinTools() []string {
 		ToolUpdateAsset,
 		ToolDeleteAsset,
 		ToolCompleteAssetScan,
+		ToolIngestNmapXML,
 		ToolUpsertProjectFact,
 		ToolGetProjectFact,
 		ToolListProjectFacts,

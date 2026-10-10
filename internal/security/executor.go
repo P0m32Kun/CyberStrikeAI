@@ -25,6 +25,15 @@ import (
 // 通过 context 传递，避免修改 MCP ToolHandler 签名导致的“写死工具”问题。
 type ToolOutputCallback func(chunk string)
 
+// ToolSuccessHook 工具执行成功后的回调（fork Phase 2 挂载点 A）。
+// 当前仅 nmap 会产生 xmlOutputPath：Executor 自动追加 `-oX <临时文件>`，
+// 执行成功且文件非空时同步调用回调，返回的文本追加到工具结果末尾。
+// 临时文件在回调返回后由 Executor 删除（stdout 已在 tool_executions 留痕）。
+type ToolSuccessHook func(ctx context.Context, toolName string, args map[string]interface{}, xmlOutputPath string) string
+
+// nmapXMLCaptureTool 是唯一启用 XML 输出捕获的工具名。
+const nmapXMLCaptureTool = "nmap"
+
 type toolOutputCallbackCtxKey struct{}
 
 // ToolOutputCallbackCtxKey 是 context 中的 key，供 Agent 写入回调，Executor 读取并流式回调。
@@ -39,6 +48,13 @@ type Executor struct {
 	shellNoOutputTimeoutSec int // execute/exec 无新输出空闲秒数；0=默认 300；-1=关闭（见 SetShellNoOutputTimeoutSeconds）
 	toolOutputMaxBytes      int
 	spillRootDir            string
+	toolSuccessHook         ToolSuccessHook // 执行成功回调（挂载点 A），nil 表示禁用
+}
+
+// SetToolSuccessHook 设置工具执行成功回调（fork Phase 2 挂载点 A）。
+// 仅在回调存在时才会为 nmap 追加 -oX 临时输出，未设置则行为与原先完全一致。
+func (e *Executor) SetToolSuccessHook(hook ToolSuccessHook) {
+	e.toolSuccessHook = hook
 }
 
 // NewExecutor 创建新的执行器
@@ -183,6 +199,14 @@ func (e *Executor) ExecuteTool(ctx context.Context, toolName string, args map[st
 		}, nil
 	}
 
+	// fork Phase 2（挂载点 A）：nmap 且注册了成功回调时，追加 -oX 输出到临时文件，
+	// 执行成功后交给回调自动入库；临时文件在 ExecuteTool 返回前删除。
+	xmlOutputPath := e.prepareNmapXMLOutput(toolName)
+	if xmlOutputPath != "" {
+		defer func() { _ = os.Remove(xmlOutputPath) }()
+		cmdArgs = append(cmdArgs, "-oX", xmlOutputPath)
+	}
+
 	// 执行命令
 	cmd := exec.CommandContext(ctx, toolConfig.Command, cmdArgs...)
 	applyDefaultTerminalEnv(cmd)
@@ -269,15 +293,51 @@ func (e *Executor) ExecuteTool(ctx context.Context, toolName string, args map[st
 		zap.String("output", string(output)),
 	)
 
+	text := string(output)
+	if note := e.fireToolSuccessHook(ctx, toolName, args, xmlOutputPath); note != "" {
+		text += "\n" + note
+	}
+
 	return &mcp.ToolResult{
 		Content: []mcp.Content{
 			{
 				Type: "text",
-				Text: string(output),
+				Text: text,
 			},
 		},
 		IsError: false,
 	}, nil
+}
+
+// prepareNmapXMLOutput 为 nmap 创建 XML 输出临时文件路径；非 nmap、未注册成功
+// 回调或创建失败时返回空字符串（行为退回原样）。
+func (e *Executor) prepareNmapXMLOutput(toolName string) string {
+	if toolName != nmapXMLCaptureTool || e.toolSuccessHook == nil {
+		return ""
+	}
+	f, err := os.CreateTemp("", "nmap-ingest-*.xml")
+	if err != nil {
+		e.logger.Warn("创建 nmap XML 临时输出失败，跳过自动入库",
+			zap.String("tool", toolName),
+			zap.Error(err),
+		)
+		return ""
+	}
+	name := f.Name()
+	_ = f.Close()
+	return name
+}
+
+// fireToolSuccessHook 在 XML 输出存在且非空时同步触发成功回调。
+func (e *Executor) fireToolSuccessHook(ctx context.Context, toolName string, args map[string]interface{}, xmlOutputPath string) string {
+	if xmlOutputPath == "" || e.toolSuccessHook == nil {
+		return ""
+	}
+	if info, err := os.Stat(xmlOutputPath); err != nil || info.Size() == 0 {
+		return ""
+	}
+	note := e.toolSuccessHook(ctx, toolName, args, xmlOutputPath)
+	return strings.TrimSpace(note)
 }
 
 // RegisterTools 注册工具到MCP服务器

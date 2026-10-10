@@ -304,6 +304,27 @@ func appendAssetAccess(query string, args []interface{}, access RBACListAccess, 
 }
 
 func (db *DB) UpsertAssets(assets []*Asset, ownerUserID string, allowGlobal ...bool) (AssetImportResult, error) {
+	global := len(allowGlobal) > 0 && allowGlobal[0]
+	return db.upsertAssets(assets, ownerUserID, global, "")
+}
+
+// UpsertAssetsInProject 是扫描入库（ingest）专用的项目限定 upsert（fork Phase 2）：
+// 去重键在“目标+端口+协议”之上并入 project 维度，同键资产在不同项目各存一行，
+// 命中更新只发生在同一项目内，不会把资产重绑到其他项目。与 UpsertAssets 的
+// 全局键空间互不干扰（不改 assets 表结构，也不改 create_asset 既有行为）。
+// allowGlobal 语义同 UpsertAssets：全局 scope 可更新他人 owner 的同键行。
+func (db *DB) UpsertAssetsInProject(assets []*Asset, ownerUserID, projectID string, allowGlobal ...bool) (AssetImportResult, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return AssetImportResult{}, fmt.Errorf("项目内入库必须提供 project")
+	}
+	global := len(allowGlobal) > 0 && allowGlobal[0]
+	return db.upsertAssets(assets, ownerUserID, global, projectID)
+}
+
+// upsertAssets 是 UpsertAssets / UpsertAssetsInProject 的共享主体。
+// projectScope 非空时启用项目内去重（dedup_key 追加项目段）。
+func (db *DB) upsertAssets(assets []*Asset, ownerUserID string, global bool, projectScope string) (AssetImportResult, error) {
 	result := AssetImportResult{}
 	tx, err := db.Begin()
 	if err != nil {
@@ -324,6 +345,9 @@ func (db *DB) UpsertAssets(assets []*Asset, ownerUserID string, allowGlobal ...b
 		if key == "|0|" {
 			result.Skipped++
 			continue
+		}
+		if projectScope != "" {
+			key = key + "|" + projectScope
 		}
 		var existingID string
 		var existingOwner sql.NullString
@@ -356,7 +380,6 @@ func (db *DB) UpsertAssets(assets []*Asset, ownerUserID string, allowGlobal ...b
 			return result, fmt.Errorf("检查资产去重键失败: %w", err)
 		}
 		asset.ID = existingID
-		global := len(allowGlobal) > 0 && allowGlobal[0]
 		if !global && existingOwner.Valid && strings.TrimSpace(existingOwner.String) != "" && strings.TrimSpace(existingOwner.String) != strings.TrimSpace(ownerUserID) {
 			result.Skipped++
 			continue

@@ -469,3 +469,70 @@ func TestAssetIPURLWithPrefilledIPDoesNotBecomeDomain(t *testing.T) {
 		}
 	}
 }
+
+// UpsertAssetsInProject：项目内去重（dedup_key+project 维度），同键不同项目各存一行。
+func TestUpsertAssetsInProjectScopedDedup(t *testing.T) {
+	db, err := NewDB(filepath.Join(t.TempDir(), "asset-project-upsert.db"), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p1, err := db.CreateProject(&Project{Name: "engagement-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := db.CreateProject(&Project{Name: "engagement-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newAsset := func(projectID string) *Asset {
+		return &Asset{IP: "192.0.2.40", Port: 443, Protocol: "tcp", Source: "nmap", ProjectID: projectID, Title: "v1"}
+	}
+
+	// 项目 A 入库。
+	result, err := db.UpsertAssetsInProject([]*Asset{newAsset(p1.ID)}, "owner-a", p1.ID)
+	if err != nil || result.Created != 1 {
+		t.Fatalf("first project ingest: result=%#v err=%v", result, err)
+	}
+	// 同项目重复扫描：仍去重（更新而非新增）。
+	result, err = db.UpsertAssetsInProject([]*Asset{newAsset(p1.ID)}, "owner-a", p1.ID)
+	if err != nil || result.Updated != 1 || result.Created != 0 {
+		t.Fatalf("same-project rescan should update: result=%#v err=%v", result, err)
+	}
+	// 不同项目同目标：各存一行，旧行不迁移。
+	result, err = db.UpsertAssetsInProject([]*Asset{newAsset(p2.ID)}, "owner-b", p2.ID)
+	if err != nil || result.Created != 1 {
+		t.Fatalf("cross-project ingest should create its own row: result=%#v err=%v", result, err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM assets`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("want 2 rows (one per project), got %d err=%v", count, err)
+	}
+	// 断言只针对本测试插入的两个项目行（uuid 排序随机，断言不依赖行序）：
+	// 各行 owner 仍是各自入库时的 owner，即证明跨项目没有发生命中更新/迁移。
+	rows, err := db.Query(`SELECT COALESCE(project_id,''), COALESCE(owner_user_id,'') FROM assets WHERE project_id IN (?, ?)`, p1.ID, p2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	owners := map[string]string{}
+	for rows.Next() {
+		var projectID, owner string
+		if err := rows.Scan(&projectID, &owner); err != nil {
+			t.Fatal(err)
+		}
+		owners[projectID] = owner
+	}
+	if len(owners) != 2 || owners[p1.ID] != "owner-a" || owners[p2.ID] != "owner-b" {
+		t.Fatalf("per-project owner bindings drifted (want p1=owner-a p2=owner-b, got %v)", owners)
+	}
+	// 与全局 UpsertAssets 的键空间互不干扰：无项目键的同目标行走原逻辑，不命中项目限定行。
+	result, err = db.UpsertAssets([]*Asset{{IP: "192.0.2.40", Port: 443, Protocol: "tcp"}}, "")
+	if err != nil || result.Created != 1 {
+		t.Fatalf("global upsert should not hit project-scoped rows: result=%#v err=%v", result, err)
+	}
+	// 空 projectID 拒绝（ingest 挂载点必须先解析出项目）。
+	if _, err := db.UpsertAssetsInProject([]*Asset{newAsset("")}, "", ""); err == nil {
+		t.Fatal("empty projectID should be rejected")
+	}
+}
