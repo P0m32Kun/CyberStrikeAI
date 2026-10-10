@@ -311,6 +311,14 @@
                             <span data-i18n="nav.webshell">WebShell管理</span>
                         </div>
                     </div>
+                    <div class="nav-item" data-page="http-flows">
+                        <div class="nav-item-content" data-title="流量" onclick="switchPage('http-flows')" data-i18n="nav.flows" data-i18n-attr="data-title" data-i18n-skip-text="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 12h4l3-8 4 16 3-8h4"></path>
+                            </svg>
+                            <span data-i18n="nav.flows">流量</span>
+                        </div>
+                    </div>
                     <!-- C2 侧栏入口（带子菜单） -->
                     <div class="nav-item nav-item-has-submenu" data-page="c2" id="nav-c2">
                         <div class="nav-item-content" data-title="C2" onclick="window.toggleSubmenu('c2')" data-i18n="nav.c2" data-i18n-attr="data-title" data-i18n-skip-text="true">
@@ -2882,6 +2890,80 @@
                                     <div class="webshell-workspace-placeholder" data-i18n="webshell.selectOrAdd">请从左侧选择连接，或添加新的 WebShell 连接</div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- HTTP 流量页（项目维度） -->
+                <div id="page-http-flows" class="page">
+                    <div class="page-header">
+                        <div>
+                            <h2 data-i18n="flows.title">流量</h2>
+                            <p class="asset-page-subtitle" data-i18n="flows.subtitle">按项目检索 Agent 产生的 HTTP 流量，查看请求响应详情并交给 Agent 分析</p>
+                        </div>
+                        <div class="page-header-actions">
+                            <button class="btn-secondary" type="button" onclick="loadFlows()" data-i18n="common.refresh">刷新</button>
+                        </div>
+                    </div>
+                    <div class="page-content">
+                        <div class="asset-toolbar">
+                            <div class="asset-toolbar-main">
+                                <input id="flow-search" type="search" data-i18n="flows.searchPlaceholder" data-i18n-attr="placeholder" placeholder="搜索 URL、路径、正文关键词" onkeydown="if(event.key==='Enter')loadFlows(0)">
+                                <select id="flow-project-filter" onchange="loadFlows(0)" data-i18n="flows.filterByProject" data-i18n-attr="title" title="按项目筛选"><option value="" data-i18n="flows.allProjects">全部项目</option></select>
+                                <input id="flow-host-filter" type="text" data-i18n="flows.hostPlaceholder" data-i18n-attr="placeholder" placeholder="host，如 example.com" onkeydown="if(event.key==='Enter')loadFlows(0)">
+                                <select id="flow-method-filter" onchange="loadFlows(0)" data-i18n="flows.method" data-i18n-attr="title" title="方法">
+                                    <option value="" data-i18n="flows.allMethods">全部方法</option>
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="DELETE">DELETE</option>
+                                    <option value="PATCH">PATCH</option>
+                                    <option value="HEAD">HEAD</option>
+                                    <option value="OPTIONS">OPTIONS</option>
+                                </select>
+                                <input id="flow-status-filter" type="text" inputmode="numeric" data-i18n="flows.statusPlaceholder" data-i18n-attr="placeholder" placeholder="状态码，如 200" onkeydown="if(event.key==='Enter')loadFlows(0)">
+                                <input id="flow-tag-filter" type="text" data-i18n="flows.tagPlaceholder" data-i18n-attr="placeholder" placeholder="标签" onkeydown="if(event.key==='Enter')loadFlows(0)">
+                                <button class="btn-link" type="button" onclick="resetFlowsFilters()" data-i18n="assets.resetFilters">重置</button>
+                            </div>
+                        </div>
+                        <div class="asset-list-card">
+                            <div class="asset-table-wrap">
+                                <table class="data-table">
+                                    <thead><tr>
+                                        <th data-i18n="flows.colTime">时间</th>
+                                        <th data-i18n="flows.colMethod">方法</th>
+                                        <th data-i18n="flows.colUrl">URL</th>
+                                        <th data-i18n="flows.colStatus">状态码</th>
+                                        <th data-i18n="flows.colHost">Host</th>
+                                        <th data-i18n="flows.colSource">来源</th>
+                                        <th data-i18n="flows.colTags">标签</th>
+                                        <th data-i18n="infoCollect.actions">操作</th>
+                                    </tr></thead>
+                                    <tbody id="flow-table-body"><tr><td colspan="8" class="muted" data-i18n="common.noData">暂无数据</td></tr></tbody>
+                                </table>
+                            </div>
+                            <div id="flow-pagination" class="pagination-container pagination-fixed"></div>
+                        </div>
+                        <p id="flow-list-meta" class="asset-page-subtitle" aria-live="polite"></p>
+                    </div>
+                </div>
+
+                <div id="flow-detail-modal" class="modal flow-detail-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="flow-detail-title" onclick="if(event.target===this)closeFlowDetail()">
+                    <div class="modal-content flow-detail-content" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <div>
+                                <h2 id="flow-detail-title" data-i18n="flows.detailTitle">流量详情</h2>
+                                <p id="flow-detail-subtitle" class="asset-page-subtitle"></p>
+                            </div>
+                            <span class="modal-close" onclick="closeFlowDetail()" data-i18n="common.close" data-i18n-attr="aria-label" aria-label="关闭">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <div id="flow-detail-body"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn-secondary" type="button" onclick="closeFlowDetail()" data-i18n="common.close">关闭</button>
+                            <button id="flow-detail-save-tags" class="btn-secondary" type="button" onclick="saveFlowTags()" data-i18n="flows.saveTags">保存标签</button>
+                            <button class="btn-primary" type="button" onclick="sendFlowToAgent()" data-i18n="flows.sendToAgent">发给 Agent</button>
                         </div>
                     </div>
                 </div>
@@ -7017,6 +7099,7 @@
     <script src="/static/js/projects.js?v=20260819-1"></script>
     <script src="/static/js/vulnerability.js?v=20261010-retest-2"></script>
     <script src="/static/js/webshell.js?v=20260907-blocked-1"></script>
+    <script src="/static/js/flows.js?v=20261011-flows-1"></script>
     <script src="/static/js/chat-files.js"></script>
     <script src="/static/js/tasks.js"></script>
     <script src="/static/js/workflow-package-client.js"></script>
