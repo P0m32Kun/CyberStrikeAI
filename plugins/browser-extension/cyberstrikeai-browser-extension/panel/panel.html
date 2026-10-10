@@ -45,6 +45,7 @@
       <div class="action-group">
         <button id="btn-send" type="button" class="btn btn--primary" disabled>Send</button>
         <button id="btn-latest-xhr" type="button" class="btn btn--secondary" disabled>Latest XHR</button>
+        <button id="btn-sync-history" type="button" class="btn btn--secondary" disabled>Sync History</button>
         <button id="btn-stop" type="button" class="btn btn--danger">Stop</button>
         <span class="action-divider"></span>
         <button id="btn-copy" type="button" class="btn btn--ghost">Copy</button>
@@ -167,6 +168,33 @@
     </form>
   </dialog>
 
+  <dialog id="sync-dialog">
+    <form method="dialog" id="sync-form">
+      <div class="dialog-header">
+        <img src="../icons/icon48.png" alt="" width="32" height="32" class="dialog-logo">
+        <h3>Sync to CyberStrikeAI History</h3>
+      </div>
+      <p id="sync-info"></p>
+      <div class="field block">
+        <span class="field-label">Project</span>
+        <div class="cs-select" data-cs-select="sync-project">
+          <input type="hidden" id="sync-project" value="">
+          <button type="button" class="cs-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+            <span class="cs-select-value">Loading…</span>
+            <svg class="cs-select-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <ul class="cs-select-menu" role="listbox" hidden></ul>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="sync-cancel" class="btn btn--ghost">Cancel</button>
+        <button type="submit" value="ok" class="btn btn--primary">Sync</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="../lib/constants.js"></script>
   <script src="../lib/auth-session.js"></script>
   <script src="../lib/storage.js"></script>
@@ -175,6 +203,7 @@
   <script src="../lib/markdown.js"></script>
   <script src="../lib/api.js"></script>
   <script src="../lib/catalog-cache.js"></script>
+  <script src="../lib/history-sync.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>

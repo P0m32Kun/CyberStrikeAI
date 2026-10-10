@@ -94,6 +94,26 @@ final class SimpleJson {
         return defaultValue;
     }
 
+    /** Reads a top-level numeric field (e.g. imported/duplicates counters). */
+    static int extractIntField(String json, String key, int defaultValue) {
+        if (json == null || key == null) return defaultValue;
+        String needle = "\"" + key + "\"";
+        int k = json.indexOf(needle);
+        if (k < 0) return defaultValue;
+        int colon = json.indexOf(':', k + needle.length());
+        if (colon < 0) return defaultValue;
+        int i = colon + 1;
+        while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
+        int start = i;
+        while (i < json.length() && (Character.isDigit(json.charAt(i)) || json.charAt(i) == '-')) i++;
+        if (i == start) return defaultValue;
+        try {
+            return Integer.parseInt(json.substring(start, i));
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
     /** Extracts each top-level object inside a JSON array field, e.g. projects / roles. */
     static List<String> extractObjectArray(String json, String arrayKey) {
         List<String> out = new ArrayList<>();

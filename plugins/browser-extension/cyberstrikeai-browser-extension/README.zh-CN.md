@@ -1,6 +1,6 @@
 ## CyberStrikeAI 浏览器扩展
 
-**当前版本：0.3.10**（UI 为英文；中文说明见下文）
+**当前版本：0.3.11**（UI 为英文；中文说明见下文）
 
 Chrome / Edge（Chromium）DevTools 扩展：在开发者工具中捕获 **Network** 流量，发送到 CyberStrikeAI 进行 AI 辅助安全测试。能力与 Burp Suite 插件对齐，并按生产场景做了性能与体验优化。
 
@@ -70,6 +70,14 @@ Cookie: ...
 - **Latest XHR**：一键选中最近 API 请求并打开发送弹窗
 - **Stop**：中止本地 SSE + 调用服务端 `/api/agent-loop/cancel`
 
+#### 流量同步（HTTP History）
+
+- 工具栏 **Sync History**：把当前 Tab 捕获列表批量同步到共享流量库（`POST /api/http-flows`，source=browser）
+- 弹窗确认目标项目（默认沿用 Send 弹窗上次选的项目；选 "(none)" 进全局范围）后一次性整批提交
+- 页面上下文伪条目（PAGE）自动跳过；请求/响应体沿用捕获时截断（64KB / 4KB）
+- 状态栏显示导入/重复条数；服务端错误（如项目不存在）原样展示
+- 与 Send 送测路径互不影响
+
 #### 流式输出
 
 - Progress 日志上限 **512KB**（超出截断）
@@ -100,6 +108,7 @@ Cookie: ...
 | **连接设置 / 收起** | 展开或折叠 Host/Port/Password 表单 |
 | **Send** | 对选中捕获发起到 CyberStrikeAI |
 | **Latest XHR** | 选中最近 XHR/Fetch 并 Send |
+| **Sync History** | 捕获列表批量同步到共享流量库 |
 | **Stop** | 停止当前 AI 流（本地 + 服务端） |
 | **Clear Output** | 清空当前 run 的 Progress / Final |
 | **● 捕获中 / ○ 已暂停** | 启用或暂停 Network 捕获 |
@@ -234,6 +243,7 @@ lib/
   formatter.js        # toPrompt 组装
   markdown.js         # Final Markdown 渲染
   catalog-cache.js    # 项目/角色 5 分钟缓存
+  history-sync.js     # 捕获条目 → /api/http-flows 流量映射
   constants.js        # 上限常量
 icons/                # 16 / 48 / 128
 package.sh
@@ -250,4 +260,5 @@ package.sh
 | HTTP 格式 | HTTP/1.1 | 展示/Prompt 归一化为 HTTP/1.1 |
 | 项目/角色/模式 | Send 弹窗 | Send 弹窗 |
 | SSE 输出 | Progress + Final | Progress + Final |
+| History 流量同步 | 右键多选入库 | Sync History 一键入库 |
 | 捕获开关 | — | ● 捕获中 / ○ 已暂停 |

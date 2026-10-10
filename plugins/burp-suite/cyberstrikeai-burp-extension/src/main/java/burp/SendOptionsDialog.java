@@ -28,6 +28,15 @@ final class SendOptionsDialog {
     private static String lastRole = "";
     private static CyberStrikeAIClient.AgentMode lastAgentMode = null;
 
+    /** 共享「上次选的项目」偏好：History 同步对话框与送测对话框用同一份记忆。 */
+    static String lastProjectId() {
+        return lastProjectId;
+    }
+
+    static void rememberProjectId(String projectId) {
+        lastProjectId = projectId == null ? "" : projectId;
+    }
+
     static Result show(
             Component parent,
             CyberStrikeAIClient client,

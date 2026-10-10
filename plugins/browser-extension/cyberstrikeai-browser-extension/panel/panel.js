@@ -1,7 +1,8 @@
 /* global chrome, loadConfig, saveConfig, baseUrlFrom, ensureHostPermission,
    loginAndValidate, validateTokenSession, fetchCatalogCached, invalidateCatalogCache, streamTest,
    cancelByConversationId, extractConversationId, AGENT_MODES, toPrompt,
-   defaultInstruction, markdownToHtml, CSAI_LIMITS, isExtensionContextError */
+   defaultInstruction, markdownToHtml, CSAI_LIMITS, isExtensionContextError,
+   importHttpFlows, syncableEntries, entryToFlow */
 
 let config = {};
 let entries = [];
@@ -16,6 +17,7 @@ let activeAbort = null;
 let activeRunId = null;
 let validateAbort = null;
 let validating = false;
+let syncingHistory = false;
 let captureEnabled = true;
 let searchDebounceTimer = null;
 let connectRetryTimer = null;
@@ -421,6 +423,7 @@ function updateSendButtons() {
   const ok = !!token;
   $('btn-send').disabled = !selectedEntryId || !ok;
   $('btn-latest-xhr').disabled = !ok;
+  $('btn-sync-history').disabled = !ok || syncingHistory;
 }
 
 function selectEntry(id) {
@@ -862,6 +865,10 @@ function setupCsSelects() {
   if (dlg) {
     dlg.addEventListener('close', () => closeAllCsSelects());
   }
+  const syncDlg = $('sync-dialog');
+  if (syncDlg) {
+    syncDlg.addEventListener('close', () => closeAllCsSelects());
+  }
 }
 
 async function openSendDialog(entryOverride) {
@@ -1176,6 +1183,71 @@ async function sendLatestXhr() {
   }
 }
 
+/** 后端单批上限（maxFlowImportBatch）；当前捕获列表上限 200，正常不会触到。 */
+const MAX_HISTORY_SYNC_BATCH = 1000;
+
+async function openSyncDialog() {
+  const syncable = syncableEntries(entries).slice(0, MAX_HISTORY_SYNC_BATCH);
+  if (!syncable.length) {
+    setStatus('No captured requests to sync', 'warn');
+    return;
+  }
+  if (!(await ensureAuthReady())) return;
+  const dlg = $('sync-dialog');
+  config = await loadConfig();
+  const baseUrl = baseUrlFrom(config);
+
+  $('sync-info').textContent =
+    `Will sync ${syncable.length} captured request(s) to CyberStrikeAI History (source=browser). ` +
+    'Already-imported flows are detected as duplicates and skipped by the server.';
+  fillSelect($('sync-project'), [{ id: '', label: 'Loading…' }], '');
+  dlg.showModal();
+
+  try {
+    const { projects } = await fetchCatalogCached(baseUrl, token);
+    fillSelect($('sync-project'), projects, config.lastProjectId);
+  } catch (err) {
+    if (await handleAuthFailure(err, 'Token invalid or expired — please Validate again')) {
+      dlg.close();
+      return;
+    }
+    fillSelect($('sync-project'), [{ id: '', label: '(load failed)' }], '');
+  }
+}
+
+async function onSyncConfirmed() {
+  if (syncingHistory) return;
+  const syncable = syncableEntries(entries).slice(0, MAX_HISTORY_SYNC_BATCH);
+  if (!syncable.length || !(await ensureAuthReady())) return;
+
+  const projectId = $('sync-project').value || '';
+  try {
+    await saveConfig({ lastProjectId: projectId });
+  } catch (err) {
+    if (onContextLoss(err)) return;
+    throw err;
+  }
+
+  syncingHistory = true;
+  updateSendButtons();
+  setStatus('Syncing history…', 'pending');
+  const baseUrl = baseUrlFrom(await loadConfig());
+  const flows = syncable.map(entryToFlow);
+  try {
+    const result = await importHttpFlows(baseUrl, token, projectId, flows);
+    const imported = (result && result.imported) || 0;
+    const duplicates = (result && result.duplicates) || 0;
+    setStatus(`History sync: imported ${imported}, duplicates ${duplicates}`, 'ok');
+  } catch (err) {
+    if (onContextLoss(err)) return;
+    await handleAuthFailure(err, 'Token invalid or expired — please Validate again');
+    setStatus('History sync failed: ' + err.message, 'error');
+  } finally {
+    syncingHistory = false;
+    updateSendButtons();
+  }
+}
+
 function onSearchInput() {
   clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(renderRequestList, 150);
@@ -1212,6 +1284,7 @@ $('port').addEventListener('input', updateConnSummary);
 $('https').addEventListener('change', updateConnSummary);
 $('btn-send').addEventListener('click', () => openSendDialog());
 $('btn-latest-xhr').addEventListener('click', sendLatestXhr);
+$('btn-sync-history').addEventListener('click', openSyncDialog);
 $('btn-stop').addEventListener('click', onStop);
 $('btn-copy').addEventListener('click', onCopyOutput);
 $('btn-clear').addEventListener('click', clearCurrentRunOutput);
@@ -1234,6 +1307,12 @@ $('send-form').addEventListener('submit', (ev) => {
   onSendConfirmed();
 });
 $('dlg-cancel').addEventListener('click', () => $('send-dialog').close());
+$('sync-form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  $('sync-dialog').close();
+  onSyncConfirmed();
+});
+$('sync-cancel').addEventListener('click', () => $('sync-dialog').close());
 
 setupTabs();
 setupCsSelects();

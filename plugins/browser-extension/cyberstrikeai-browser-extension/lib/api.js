@@ -179,3 +179,25 @@ async function cancelByConversationId(baseUrl, token, conversationId) {
     body: JSON.stringify({ conversationId }),
   });
 }
+
+/**
+ * Batch-sync captured flows to the shared HTTP History: POST /api/http-flows.
+ * Returns { imported, duplicates, errors } on success; throws Error with the
+ * server-side message (json.error) on failure — same error shape as apiFetch.
+ */
+async function importHttpFlows(baseUrl, token, projectId, flows, signal) {
+  return apiFetch(baseUrl, '/api/http-flows', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      project_id: projectId || '',
+      source: 'browser',
+      flows: flows || [],
+    }),
+    signal,
+  });
+}
