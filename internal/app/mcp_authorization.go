@@ -118,6 +118,11 @@ func mcpToolAuthorizer(db *database.DB) func(context.Context, string, map[string
 			return authorizeMCPProjectResourceBoundary(ctx, db, "vulnerability", id)
 		case builtin.ToolQueryAssets:
 			return require("asset:read")
+		case builtin.ToolQueryHTTPFlows, builtin.ToolGetHTTPFlow, builtin.ToolStartChatFromFlow:
+			// 流量数据不按用户行级隔离；项目边界在工具实现内按对话强制
+			return require("httpflow:read")
+		case builtin.ToolTagHTTPFlow:
+			return require("httpflow:write")
 		case builtin.ToolGetAsset:
 			return resource("asset:read", "asset", "id")
 		case builtin.ToolCreateAsset:

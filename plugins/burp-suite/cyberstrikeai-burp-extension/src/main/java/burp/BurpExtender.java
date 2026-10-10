@@ -3,6 +3,7 @@ package burp;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class BurpExtender implements IBurpExtender, IContextMenuFactory {
     private IBurpExtenderCallbacks callbacks;
@@ -11,6 +12,7 @@ public class BurpExtender implements IBurpExtender, IContextMenuFactory {
     private CyberStrikeAITab tab;
     private final CyberStrikeAIClient client = new CyberStrikeAIClient();
     private String lastInstruction = HttpMessageFormatter.defaultInstruction();
+    private final AtomicBoolean historySyncing = new AtomicBoolean(false);
 
     @Override
     public void registerExtenderCallbacks(IBurpExtenderCallbacks callbacks) {
@@ -40,8 +42,91 @@ public class BurpExtender implements IBurpExtender, IContextMenuFactory {
             sendMessage(selected[0]);
         });
 
+        JMenuItem historyItem = new JMenuItem("Send to CyberStrikeAI History");
+        historyItem.addActionListener(e -> {
+            IHttpRequestResponse[] selected = invocation.getSelectedMessages();
+            if (selected == null || selected.length == 0) {
+                return;
+            }
+            sendToHistory(selected);
+        });
+
         items.add(sendItem);
+        items.add(historyItem);
         return items;
+    }
+
+    /** 右键多选条目 → POST /api/http-flows（source=burp）。超 1000 条自动分批。 */
+    private void sendToHistory(IHttpRequestResponse[] messages) {
+        if (historySyncing.getAndSet(true)) {
+            return;
+        }
+        try {
+            CyberStrikeAIClient.Config cfg = tab.currentConfig();
+            String token = tab.getToken();
+            if (token == null || token.trim().isEmpty()) {
+                historySyncing.set(false);
+                JOptionPane.showMessageDialog(tab.getUiComponent(),
+                        "Please click Validate first to obtain a token.",
+                        "CyberStrikeAI", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Burp 旧 extender API 不暴露 history 条目时间戳，统一用同步时刻
+            long ts = System.currentTimeMillis();
+            List<CyberStrikeAIClient.FlowPayload> flows = new ArrayList<>();
+            for (IHttpRequestResponse msg : messages) {
+                if (msg == null || msg.getRequest() == null || msg.getRequest().length == 0) {
+                    continue;
+                }
+                flows.add(CyberStrikeAIClient.flowFromMessage(helpers, msg, ts));
+            }
+            if (flows.isEmpty()) {
+                historySyncing.set(false);
+                JOptionPane.showMessageDialog(tab.getUiComponent(),
+                        "所选条目中没有可同步的请求。",
+                        "CyberStrikeAI", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            HistorySyncDialog.Result result = HistorySyncDialog.show(
+                    tab.getUiComponent(), client, cfg, token, flows.size());
+            if (result == null) {
+                historySyncing.set(false);
+                return;
+            }
+
+            Thread worker = new Thread(() -> {
+                int imported = 0;
+                int duplicates = 0;
+                try {
+                    for (int i = 0; i < flows.size(); i += CyberStrikeAIClient.MAX_FLOWS_PER_BATCH) {
+                        List<CyberStrikeAIClient.FlowPayload> chunk = flows.subList(i,
+                                Math.min(flows.size(), i + CyberStrikeAIClient.MAX_FLOWS_PER_BATCH));
+                        CyberStrikeAIClient.ImportSummary summary =
+                                client.importHttpFlows(cfg, token, result.projectId, chunk);
+                        imported += summary.imported;
+                        duplicates += summary.duplicates;
+                    }
+                    final int okImported = imported;
+                    final int okDuplicates = duplicates;
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(tab.getUiComponent(),
+                            "同步完成：导入 " + okImported + " 条，重复 " + okDuplicates + " 条。",
+                            "CyberStrikeAI History", JOptionPane.INFORMATION_MESSAGE));
+                } catch (Exception ex) {
+                    callbacks.printError("CyberStrikeAI history sync error: " + ex.getMessage());
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(tab.getUiComponent(),
+                            "同步失败: " + ex.getMessage(),
+                            "CyberStrikeAI History", JOptionPane.ERROR_MESSAGE));
+                } finally {
+                    historySyncing.set(false);
+                }
+            }, "CyberStrikeAI-HistorySync");
+            worker.start();
+        } catch (Exception e) {
+            historySyncing.set(false);
+            callbacks.printError("CyberStrikeAI history sync error: " + e.getMessage());
+        }
     }
 
     private void sendMessage(IHttpRequestResponse msg) {

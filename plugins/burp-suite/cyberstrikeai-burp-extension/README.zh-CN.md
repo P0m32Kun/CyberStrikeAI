@@ -14,6 +14,7 @@
     - **对话模式**（Eino 单代理 / Deep / Plan-Execute / Supervisor，按次选择并记住上次取值）
     - **测试指令**（可编辑 prompt 前缀）
   - 选择会记住上次取值，便于连续测同类流量
+- 右键一条或多条 Proxy history 条目 → **Send to CyberStrikeAI History**：批量同步流量入库（`POST /api/http-flows`，source=burp）
 - **测试历史侧边栏（可搜索）**：每次发送都会新增一条记录，方便回看与对比
 - **Output 分区**：`Progress`（可折叠）+ `Final Response`（主区域）
 - **Markdown 渲染**：最终输出可在 Output 主区域渲染为富文本（可开关）
@@ -70,6 +71,16 @@ cd plugins/burp-suite/cyberstrikeai-burp-extension
 产物：
 
 - `dist/cyberstrikeai-burp-extension.jar`
+
+### 流量同步（HTTP History）
+
+在 Proxy history（或任意 HTTP 消息列表）中选中一条或多条流量，右键 → **Send to CyberStrikeAI History**：
+
+- 弹窗确认目标项目（默认沿用送测对话框上次选的项目；选「(无)」进全局范围）后同步
+- 复用插件现有 Host/Port/HTTPS 配置与 Bearer Token，POST 到 `/api/http-flows`（source=burp）；超过 1000 条自动分批
+- 成功弹窗显示导入/重复条数；服务端错误（如项目不存在）原样展示
+- Burp 旧 extender API 不暴露 history 条目时间戳，同步条目的 `ts` 统一取同步时刻
+- 该路径与「stream test」送测互不影响
 
 ### 在 Burp Suite 中加载
 

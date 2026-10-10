@@ -1,6 +1,6 @@
 ## CyberStrikeAI Browser Extension
 
-**Version 0.3.10** — Full docs: **README.zh-CN.md**
+**Version 0.3.11** — Full docs: **README.zh-CN.md**
 
 Chromium DevTools extension: capture Network traffic and send it to CyberStrikeAI for AI-assisted security testing. Aligned with the Burp Suite plugin.
 
@@ -28,7 +28,17 @@ Chromium DevTools extension: capture Network traffic and send it to CyberStrikeA
 - **Deferred Markdown** — plain text while streaming; render after done; skip above 100KB
 - **Stop** — abort local stream + server cancel via `conversationId`
 - **Latest XHR**, **Copy**, project/role/agent send dialog
+- **Sync History** — batch-sync captured requests to the shared HTTP History (`POST /api/http-flows`, source=browser); see below
 - Session token with **expires_at** tracking, 30s server probe, restart/unreachable detection
+
+### Traffic sync (HTTP History)
+
+Click **Sync History** in the panel toolbar to push the current captured list into CyberStrikeAI's shared flow library:
+
+- Confirms the target project (defaults to the last project used in the send dialog; "(none)" = global scope), then POSTs all real captured entries as one batch with `source=browser`
+- Page-context pseudo entries are skipped; bodies use the capture-time truncation limits (request 64KB / response 4KB)
+- The status bar reports `imported` / `duplicates` counts; server errors (e.g. project not found) are shown as-is
+- Independent of the Send (agent test) path — that flow is unchanged
 
 ### Data limits (no unbounded growth)
 

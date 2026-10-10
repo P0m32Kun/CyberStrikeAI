@@ -90,6 +90,33 @@ final class CyberStrikeAIClient {
         void onDone();
     }
 
+    /** 单条流量，字段与 POST /api/http-flows 的 flows[] 合同一致（docs/zh-CN/http-flows.md）。 */
+    static final class FlowPayload {
+        long ts; // epoch millis；Burp 旧 extender API 不暴露 history 条目时间，用同步时刻
+        String method = "";
+        String url = "";
+        int status;
+        String contentType = "";
+        String reqHeaders = "";
+        String reqBody = "";
+        String respHeaders = "";
+        String respBody = "";
+    }
+
+    /** Import 结果计数，对应服务端 {"imported":N,"duplicates":N} 响应。 */
+    static final class ImportSummary {
+        final int imported;
+        final int duplicates;
+
+        ImportSummary(int imported, int duplicates) {
+            this.imported = imported;
+            this.duplicates = duplicates;
+        }
+    }
+
+    /** 批量导入上限，与后端 maxFlowImportBatch 保持一致，超出由调用方分批。 */
+    static final int MAX_FLOWS_PER_BATCH = 1000;
+
     boolean hasActiveRequest() {
         return activeConnection.get() != null;
     }
@@ -398,6 +425,119 @@ final class CyberStrikeAIClient {
             }
             throw new IOException("Cancel failed (" + code + ").");
         }
+    }
+
+    private static final int IMPORT_READ_TIMEOUT_MS = 60_000;
+
+    /**
+     * 批量同步流量到 History：POST /api/http-flows（source=burp）。
+     * 同步调用，需在后台线程执行（与 fetchProjects 等一致）。
+     */
+    ImportSummary importHttpFlows(Config cfg, String token, String projectId, List<FlowPayload> flows)
+            throws IOException {
+        if (flows == null || flows.isEmpty()) {
+            throw new IOException("No flows to import.");
+        }
+        if (flows.size() > MAX_FLOWS_PER_BATCH) {
+            throw new IOException("Too many flows in one batch: " + flows.size()
+                    + " (max " + MAX_FLOWS_PER_BATCH + ")");
+        }
+        URL url = new URL(cfg.baseUrl + "/api/http-flows");
+        HttpURLConnection conn = SslTrustAll.open(url, AUTH_CONNECT_TIMEOUT_MS, IMPORT_READ_TIMEOUT_MS);
+        trackConnection(conn);
+        try {
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            String body = buildImportBody(projectId, "burp", flows);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
+            }
+            int code = conn.getResponseCode();
+            String resp = readAll(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
+            if (code < 200 || code >= 300) {
+                String serverError = SimpleJson.extractStringField(resp, "error");
+                if (!serverError.isEmpty()) {
+                    throw new IOException("Import failed (" + code + "): " + serverError);
+                }
+                throw new IOException("Import failed (" + code + ").");
+            }
+            return new ImportSummary(
+                    SimpleJson.extractIntField(resp, "imported", 0),
+                    SimpleJson.extractIntField(resp, "duplicates", 0));
+        } finally {
+            releaseConnection(conn);
+            conn.disconnect();
+        }
+    }
+
+    /** 把一条 Burp 消息组装为 FlowPayload；ts 由调用方传入（同步时刻）。 */
+    static FlowPayload flowFromMessage(IExtensionHelpers helpers, IHttpRequestResponse msg, long ts) {
+        FlowPayload f = new FlowPayload();
+        f.ts = ts;
+        IRequestInfo reqInfo = helpers.analyzeRequest(msg);
+        f.method = reqInfo.getMethod() == null ? "" : reqInfo.getMethod();
+        f.url = reqInfo.getUrl() != null ? reqInfo.getUrl().toString() : "";
+        byte[] reqBytes = msg.getRequest();
+        int bodyOffset = reqInfo.getBodyOffset();
+        f.reqHeaders = String.join("\n", reqInfo.getHeaders());
+        f.reqBody = "";
+        if (reqBytes != null && bodyOffset >= 0 && reqBytes.length > bodyOffset) {
+            f.reqBody = new String(reqBytes, bodyOffset, reqBytes.length - bodyOffset, StandardCharsets.ISO_8859_1);
+        }
+        byte[] respBytes = msg.getResponse();
+        if (respBytes != null && respBytes.length > 0) {
+            IResponseInfo respInfo = helpers.analyzeResponse(respBytes);
+            f.status = respInfo.getStatusCode();
+            List<String> respHeaders = respInfo.getHeaders();
+            f.respHeaders = String.join("\n", respHeaders);
+            f.contentType = headerValueByName(respHeaders, "Content-Type");
+            int respBodyOffset = respInfo.getBodyOffset();
+            if (respBodyOffset >= 0 && respBytes.length > respBodyOffset) {
+                f.respBody = new String(respBytes, respBodyOffset, respBytes.length - respBodyOffset,
+                        StandardCharsets.ISO_8859_1);
+            }
+        }
+        return f;
+    }
+
+    static String buildImportBody(String projectId, String source, List<FlowPayload> flows) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        sb.append("\"project_id\":\"").append(escapeJson(projectId == null ? "" : projectId)).append("\",");
+        sb.append("\"source\":\"").append(escapeJson(source)).append("\",");
+        sb.append("\"flows\":[");
+        for (int i = 0; i < flows.size(); i++) {
+            FlowPayload f = flows.get(i);
+            if (i > 0) sb.append(',');
+            sb.append("{");
+            sb.append("\"ts\":").append(f.ts).append(",");
+            sb.append("\"method\":\"").append(escapeJson(f.method)).append("\",");
+            sb.append("\"url\":\"").append(escapeJson(f.url)).append("\",");
+            sb.append("\"status\":").append(f.status).append(",");
+            sb.append("\"content_type\":\"").append(escapeJson(f.contentType)).append("\",");
+            sb.append("\"req_headers\":\"").append(escapeJson(f.reqHeaders)).append("\",");
+            sb.append("\"req_body\":\"").append(escapeJson(f.reqBody)).append("\",");
+            sb.append("\"resp_headers\":\"").append(escapeJson(f.respHeaders)).append("\",");
+            sb.append("\"resp_body\":\"").append(escapeJson(f.respBody)).append("\"");
+            sb.append("}");
+        }
+        sb.append("]}");
+        return sb.toString();
+    }
+
+    private static String headerValueByName(List<String> headers, String name) {
+        if (headers == null) return "";
+        String prefix = name.toLowerCase() + ":";
+        for (String h : headers) {
+            if (h == null) continue;
+            if (h.toLowerCase().startsWith(prefix)) {
+                return h.substring(prefix.length()).trim();
+            }
+        }
+        return "";
     }
 
     private static String toJson(Map<String, Object> payload) {

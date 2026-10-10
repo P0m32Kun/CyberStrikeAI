@@ -168,6 +168,9 @@ func permissionForRequest(method, fullPath string) string {
 		return "asset:delete"
 	case strings.HasPrefix(path, "/assets"):
 		return crudPermission(method, "asset")
+	case strings.HasPrefix(path, "/http-flows"):
+		// 流量共享库：读=检索/详情，写=导入/标签，删=按项目清理
+		return crudPermission(method, "httpflow")
 	case strings.HasPrefix(path, "/vulnerability-alerts"):
 		// This endpoint only changes the authenticated user's own preference.
 		return "vulnerability:read"

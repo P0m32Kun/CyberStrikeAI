@@ -7,6 +7,7 @@
 - Configure **Host / Port / HTTPS / Password** and choose an agent mode
 - Click **Validate** to login (`POST /api/auth/login`) and verify token (`GET /api/auth/validate`)
 - Right-click any HTTP message in Burp and send it to CyberStrikeAI for **streaming web pentest** (agent modes: **Eino Single**, Deep, Plan-Execute, Supervisor — maps to `/api/eino-agent/stream` or `/api/multi-agent/stream`)
+- Right-click one or more Proxy history entries and **Send to CyberStrikeAI History** to batch-sync traffic into the shared HTTP flow library (`POST /api/http-flows`, source=burp)
 - Keep a **test history sidebar** (searchable) so you can revisit previous runs
 - Output is split into **collapsible Progress** + **Final Response** (Markdown rendering supported)
 - View captured **Request / Response** for each run
@@ -54,6 +55,16 @@ Output:
 #### Option C: Gradle (optional)
 
 If you already have Gradle available, you can still use `build.gradle` to build.
+
+### Traffic sync (HTTP History)
+
+Right-click one or more messages in Proxy history (or any HTTP message view) and pick **Send to CyberStrikeAI History**:
+
+- Confirm the target project (defaults to the last project used by the send dialog; "(无)" = global scope) and sync
+- Flows are POSTed to `/api/http-flows` with `source=burp` using the same Host/Port/HTTPS and Bearer token as the rest of the extension; batches larger than 1000 are chunked automatically
+- A result dialog reports imported / duplicates counts; server-side errors (e.g. project not found) are shown as-is
+- The legacy extender API does not expose per-entry timestamps, so each synced entry gets the sync time as `ts`
+- This path is independent of the "stream test" agent flow and does not change it
 
 ### Load in Burp Suite
 
